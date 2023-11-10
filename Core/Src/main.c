@@ -21,8 +21,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "ring_buffer.h"
+#include <stdio.h>
 #include "Keypad.h"
+#include "ring_buffer.h"
+#include<ssd1306.h>
+#include<ssd1306_fonts.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,6 +50,11 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+uint16_t key_event=0xFF; //key event is declared
+uint8_t keypad_data[5]; //create the data buffer
+ring_buffer_t Ring_buffer_keypad;//define the ring buffer
+uint8_t Password[ ] = {2,0,0,4,0x0F}; //define the password
+
 
 /* USER CODE END PV */
 
@@ -60,6 +69,17 @@ static void MX_I2C1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+int _write(int file, char *ptr, int len)
+{
+	HAL_UART_Transmit(&huart2, (uint8_t*)ptr, len, HAL_MAX_DELAY);
+	return len;
+}
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+		  key_event=GPIO_Pin;//save the column activate
+}
+int memcmp(const void *str1, const void *str2, size_t n);//function for comparing two strings
 
 /* USER CODE END 0 */
 
@@ -99,8 +119,60 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+
+  keypad_init(); //keypad initialization
+  ring_buffer_init(&Ring_buffer_keypad, keypad_data, 5);//ring buffer initialization
+  ssd1306_Init();//OLED screen initialization
+
+
   while (1)
   {
+	  if(key_event!=0xFF)
+	  {
+		  uint16_t key = KeyPad_handler(key_event);//get the key value
+		  if(key!= 0xFF)//check if the key pressed has a correct value
+		  {
+			  ring_buffer_put(&Ring_buffer_keypad, key);//write the key data in the buffer
+		  }
+		  key_event = 0xFF; //reset the key event
+
+		  if(key == 0x0E) //check if the * key is pressed
+		  {
+		  ring_buffer_reset(&Ring_buffer_keypad); // Reset the data buffer if * key was pressed
+		  memset(keypad_data,'\0',sizeof(keypad_data)); // Clean buffer to restart sequence
+		  ssd1306_Fill(Black); // Clear the OLED display with black color.
+		  ssd1306_SetCursor(20, 20); // Set the cursor position for text.
+		  ssd1306_WriteString("Reset, waiting",Font_7x10, White);// Display "Reset, waiting" in white color.
+		  ssd1306_UpdateScreen(); // Update the OLED screen.
+		  }
+
+		  if(  ring_buffer_is_full(&Ring_buffer_keypad)== 1) //check if the sequences is complete
+		  {
+
+			  ring_buffer_get(&Ring_buffer_keypad, keypad_data);//read the buffer data
+
+
+			  if(memcmp(keypad_data,Password,5)==0)//check if the input sequence is the same as the password
+			  {
+
+				  ssd1306_Fill(White); // Clear the OLED display with black color.
+				  ssd1306_SetCursor(20, 20); // Set the cursor position for text.
+				  ssd1306_WriteString("Pass", Font_7x10,Black);// Display "Pass" in white color.
+				  ssd1306_UpdateScreen();//update the screen
+				  ring_buffer_reset(&Ring_buffer_keypad);// Reset the ring buffer for wait a new sequence
+
+			  }
+			  if(memcmp(keypad_data,Password,5)!=0)
+			  {
+				  ssd1306_Fill(Black); // Clear the OLED display with black color.
+				  ssd1306_SetCursor(20, 20); // Set the cursor position for text.
+				  ssd1306_WriteString("Fail", Font_7x10,White);// Display "Fail" in white color.
+				  ssd1306_UpdateScreen();//update the screen
+			  }
+		  }
+	  }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -258,7 +330,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LD2_Pin|ROW_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|ROW_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, ROW_2_Pin|ROW_4_Pin|ROW_3_Pin, GPIO_PIN_RESET);
@@ -269,8 +341,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LD2_Pin ROW_1_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin|ROW_1_Pin;
+  /*Configure GPIO pins : PA5 ROW_1_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_5|ROW_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
